@@ -1,93 +1,80 @@
 import pytest
-from datetime import datetime, time, timedelta
 
-# Update import path to match your project structure:
-from med_scheduler import TimeWindow, Medication, Reminder, schedule_reminders
+from event_registration import EventRegistration, UserStatus, DuplicateRequest, NotFound
 
 
-def in_window(win: TimeWindow, dt: datetime) -> bool:
-    return win.start <= dt.time() < win.end
+def test_register_until_capacity_then_waitlist_fifo_positions():
+    er = EventRegistration(capacity=2)
+
+    s1 = er.register("u1")
+    s2 = er.register("u2")
+    s3 = er.register("u3")
+    s4 = er.register("u4")
+
+    assert s1 == UserStatus("registered")
+    assert s2 == UserStatus("registered")
+    assert s3 == UserStatus("waitlisted", 1)
+    assert s4 == UserStatus("waitlisted", 2)
+
+    snap = er.snapshot()
+    assert snap["registered"] == ["u1", "u2"]
+    assert snap["waitlist"] == ["u3", "u4"]
 
 
-def hour_bucket(dt: datetime) -> datetime:
-    return dt.replace(minute=0, second=0, microsecond=0)
+def test_cancel_registered_promotes_earliest_waitlisted_fifo():
+    er = EventRegistration(capacity=1)
+    er.register("u1")
+    er.register("u2")  # waitlist
+    er.register("u3")  # waitlist
+
+    er.cancel("u1")  # should promote u2
+
+    assert er.status("u1") == UserStatus("none")
+    assert er.status("u2") == UserStatus("registered")
+    assert er.status("u3") == UserStatus("waitlisted", 1)
+
+    snap = er.snapshot()
+    assert snap["registered"] == ["u2"]
+    assert snap["waitlist"] == ["u3"]
 
 
-def assert_basic_constraints(
-    reminders,
-    start,
-    allowed_window,
-    quiet_hours,
-    max_per_hour,
-):
-    # Sorted deterministically by (when, med_name)
-    assert reminders == sorted(reminders, key=lambda r: (r.when, r.med_name))
+def test_duplicate_register_raises_for_registered_and_waitlisted():
+    er = EventRegistration(capacity=1)
+    er.register("u1")
+    with pytest.raises(DuplicateRequest):
+        er.register("u1")
 
-    # All reminders >= start and within allowed_window
-    for r in reminders:
-        assert r.when >= start
-        assert in_window(allowed_window, r.when)
-        if quiet_hours is not None:
-            assert not in_window(quiet_hours, r.when)
-
-    # Rate limit per hour bucket
-    counts = {}
-    for r in reminders:
-        b = hour_bucket(r.when)
-        counts[b] = counts.get(b, 0) + 1
-        assert counts[b] <= max_per_hour
+    er.register("u2")  # waitlisted
+    with pytest.raises(DuplicateRequest):
+        er.register("u2")
 
 
-def test_a1_single_med_simple_frequency_exact_times():
-    start = datetime(2026, 2, 24, 9, 0)
-    allowed = TimeWindow(time(0, 0), time(23, 59))
-    meds = [Medication("A", every_minutes=60)]
-    out = schedule_reminders(start, meds, allowed, quiet_hours=None, max_per_hour=10, n=3)
+def test_waitlisted_cancel_removes_and_updates_positions():
+    er = EventRegistration(capacity=1)
+    er.register("u1")
+    er.register("u2")  # waitlist pos1
+    er.register("u3")  # waitlist pos2
 
-    assert [(r.when, r.med_name) for r in out] == [
-        (start, "A"),
-        (start + timedelta(hours=1), "A"),
-        (start + timedelta(hours=2), "A"),
-    ]
+    er.cancel("u2")    # remove from waitlist
 
+    assert er.status("u2") == UserStatus("none")
+    assert er.status("u3") == UserStatus("waitlisted", 1)
 
-def test_a2_two_meds_tie_break_by_med_name_when_same_time():
-    start = datetime(2026, 2, 24, 10, 0)
-    allowed = TimeWindow(time(0, 0), time(23, 59))
-    meds = [Medication("B", 60), Medication("A", 60)]
-    out = schedule_reminders(start, meds, allowed, quiet_hours=None, max_per_hour=10, n=2)
-
-    # If both occur at the same time, ordering must be deterministic by med_name
-    assert out[0].when == out[1].when
-    assert out[0].med_name == "A"
-    assert out[1].med_name == "B"
+    snap = er.snapshot()
+    assert snap["registered"] == ["u1"]
+    assert snap["waitlist"] == ["u3"]
 
 
-def test_a3_quiet_hours_exclusion():
-    start = datetime(2026, 2, 24, 21, 50)
-    allowed = TimeWindow(time(0, 0), time(23, 59))
-    quiet = TimeWindow(time(22, 0), time(23, 0))
-    meds = [Medication("A", 20)]
-    out = schedule_reminders(start, meds, allowed, quiet_hours=quiet, max_per_hour=10, n=6)
+def test_capacity_zero_all_waitlisted_and_promotion_never_happens():
+    er = EventRegistration(capacity=0)
+    assert er.register("u1") == UserStatus("waitlisted", 1)
+    assert er.register("u2") == UserStatus("waitlisted", 2)
 
-    assert_basic_constraints(out, start, allowed, quiet, 10)
+    # No one can ever be registered when capacity=0
+    assert er.status("u1") == UserStatus("waitlisted", 1)
+    assert er.status("u2") == UserStatus("waitlisted", 2)
+    assert er.snapshot()["registered"] == []
 
-
-def test_a4_allowed_window_respected_when_start_outside_window():
-    start = datetime(2026, 2, 24, 8, 30)
-    allowed = TimeWindow(time(9, 0), time(17, 0))
-    meds = [Medication("A", 60)]
-    out = schedule_reminders(start, meds, allowed, quiet_hours=None, max_per_hour=10, n=2)
-
-    assert_basic_constraints(out, start, allowed, None, 10)
-    # Specifically: first reminder must be within allowed window
-    assert out[0].when.time() >= time(9, 0)
-
-
-def test_a5_rate_limit_enforced_across_multiple_meds():
-    start = datetime(2026, 2, 24, 10, 0)
-    allowed = TimeWindow(time(0, 0), time(23, 59))
-    meds = [Medication("A", 60), Medication("B", 60)]
-    out = schedule_reminders(start, meds, allowed, quiet_hours=None, max_per_hour=1, n=4)
-
-    assert_basic_constraints(out, start, allowed, None, 1)
+    # Cancel unknown should raise NotFound
+    with pytest.raises(NotFound):
+        er.cancel("missing")
