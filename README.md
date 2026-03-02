@@ -2,32 +2,51 @@
 
 ## System Description
 
-Participants implement a module for registering users for an event with fixed capacity. Users are registered until capacity is reached; additional users are placed on a FIFO waitlist. When a registered user cancels, the earliest
-waitlisted user is promoted. The module must prevent duplicates and provide user status queries.
+In this lab, you will design and implement an **Event Registration with Waitlist** system using an LLM assistant as your primary programming collaborator. You are asked to implement a Python module that manages registration for a single event with a fixed capacity. The system must:
 
-The module registers users until capacity is reached, places additional users on a FIFO waitlist, and promotes the earliest waitlisted user upon cancellation. The module must prevent duplicate entries and support status queries. 
+·  Accept a fixed capacity.
 
+·  Register users until capacity is reached.
 
+·  Place additional users into a FIFO waitlist.
 
-## Structure
+·  Automatically promote the earliest waitlisted user when a registered user cancels.
 
-- **event_registration.py** – starter file where you implement. Do not rename this file.
-- **test_event_registration.py** – Public tests you can run to check basic correctness. Use a test runner such as `pytest` to execute these tests.
+·  Prevent duplicate registrations.
 
+·  Allow users to query their current status.
 
+The system must ensure that:
 
-## Running Tests
+·  The number of registered users never exceeds capacity.
 
-1. Install Python 3 if not already installed.
-2. Implement your solution in `event_registration.py`.
-3. Optionally create `test_event_registration.py` and write at least 5 test cases.
-4. Run tests using:
+·  Waitlist ordering preserves FIFO behavior.
 
-```
-pytest file_name.py
-```
+·  Promotions occur deterministically under identical operation sequences.
 
-5. Fix any failing tests before moving on. Remember that hidden tests will check additional requirements
+The module must preserve the following invariants:
+
+·  A user may not appear more than once in the system.
+
+·  A user may not simultaneously exist in multiple states.
+
+·  The system state must remain consistent after every operation.
+
+The system must correctly handle non-trivial scenarios such as:
+
+·  Multiple cancellations in sequence.
+
+·  Users attempting to re-register after canceling.
+
+·  Waitlisted users canceling before promotion.
+
+·  Capacity equal to zero.
+
+·  Simultaneous or rapid consecutive operations.
+
+·  Queries during state transitions.
+
+The output consists of the updated registration state and ordered lists of registered and waitlisted users after each operation.
 
  
 
