@@ -1,5 +1,7 @@
-## Student Name:
-## Student ID:
+# solution.py
+
+## Student Name: Avery Backus
+## Student ID: 219767888
 
 """
 Task B: Event Registration with Waitlist (Stub)
@@ -72,8 +74,14 @@ class EventRegistration:
         Args:
             capacity: maximum number of registered users (>= 0)
         """
-        # TODO: Initialize internal data structures
-        raise NotImplementedError("EventRegistration.__init__ not implemented yet")
+        if not isinstance(capacity, int):
+            raise TypeError("capacity must be an integer")
+        if capacity < 0:
+            raise ValueError("capacity must be >= 0")
+
+        self._capacity = capacity
+        self._registered: List[str] = []
+        self._waitlist: List[str] = []
 
     def register(self, user_id: str) -> UserStatus:
         """
@@ -84,8 +92,15 @@ class EventRegistration:
         Raises:
             DuplicateRequest if user already exists (registered or waitlisted)
         """
-        # TODO: Implement per lab handout
-        raise NotImplementedError("register not implemented yet")
+        if user_id in self._registered or user_id in self._waitlist:
+            raise DuplicateRequest(f"{user_id} is already in the system")
+
+        if len(self._registered) < self._capacity:
+            self._registered.append(user_id)
+            return UserStatus("registered")
+
+        self._waitlist.append(user_id)
+        return UserStatus("waitlisted", len(self._waitlist))
 
     def cancel(self, user_id: str) -> None:
         """
@@ -97,8 +112,19 @@ class EventRegistration:
         Raises:
             NotFound (if required by handout)
         """
-        # TODO: Implement per lab handout
-        raise NotImplementedError("cancel not implemented yet")
+        if user_id in self._registered:
+            self._registered.remove(user_id)
+
+            if self._waitlist and len(self._registered) < self._capacity:
+                promoted = self._waitlist.pop(0)
+                self._registered.append(promoted)
+            return
+
+        if user_id in self._waitlist:
+            self._waitlist.remove(user_id)
+            return
+
+        raise NotFound(f"{user_id} not found")
 
     def status(self, user_id: str) -> UserStatus:
         """
@@ -107,13 +133,20 @@ class EventRegistration:
           - waitlisted with position (1-based)
           - none
         """
-        # TODO: Implement per lab handout
-        raise NotImplementedError("status not implemented yet")
+        if user_id in self._registered:
+            return UserStatus("registered")
+
+        if user_id in self._waitlist:
+            return UserStatus("waitlisted", self._waitlist.index(user_id) + 1)
+
+        return UserStatus("none")
 
     def snapshot(self) -> dict:
         """
         (Optional helper for debugging/tests)
         Return a deterministic snapshot of internal state.
         """
-        # TODO: Implement if required/allowed
-        raise NotImplementedError("snapshot not implemented yet")
+        return {
+            "registered": list(self._registered),
+            "waitlist": list(self._waitlist),
+        }
